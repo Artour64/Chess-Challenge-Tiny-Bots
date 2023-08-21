@@ -1,62 +1,50 @@
 ﻿using System;
+using System.Linq;
 using ChessChallenge.API;
 
 public class MyBot : IChessBot
 {
     public Move Think(Board board, Timer timer)
     {
+        
+        //Console.WriteLine("-");
         Move[] moves = moves_init_sorted(board.GetLegalMoves());
         
-        Move[] bestMoves = new Move[moves.Length];
+        //Move[] bestMoves = new Move[moves.Length];
+        sbyte[] evals = new sbyte[moves.Length];
         
+        bool isWhiteToMove = board.IsWhiteToMove;
         int depth = 0;
-        int count = 1;
         int timeLeftTargetLow = (timer.MillisecondsRemaining * 999)/1000;
-        int timeLeftTargetHigh = (timer.MillisecondsRemaining * 9)/10;
+        int timeLeftTargetHigh = (timer.MillisecondsRemaining * 99)/100;//make smaller gap maybe
 
-        while (depth<=0||timer.MillisecondsRemaining > timeLeftTargetLow)
+        Move bestPrev = moves[0];//if eval is loosing, return this and hope opponent does not see mate
+
+        while (true)
         {
-            Move move = moves[0];
 
-            count = 1;
-            bestMoves[0] = move;
-            board.MakeMove(move);
-            sbyte eval = evaln(board, depth, 127, false); //127 means first, don't do alpha beta pruning
-            board.UndoMove(move);
-
-            if (eval == isMatedVal(!board.IsWhiteToMove))
-            {
-                return move;
-            }
-
-            bool first = true;
+            int count = 0;
+            sbyte eval = isMatedVal(isWhiteToMove);
+            
             foreach (Move m in moves)
             {
-                if (first)
-                {
-                    first = false;
-                    continue;
-                }
                 
                 board.MakeMove(m);
                 sbyte eval2 = evaln(board, depth, eval, false);
                 board.UndoMove(m);
-                if (eval2 == isMatedVal(!board.IsWhiteToMove))
+                
+                if (eval2 == isMatedVal(!isWhiteToMove))
                 {
                     return m;
                 }
-                if (eval2 == eval)
-                {
-                    bestMoves[count] = m;
-                    count++;
-                }
-                else if (board.IsWhiteToMove)
+
+                evals[count] = eval2;
+                count++;
+                if (isWhiteToMove)
                 {
                     if (eval2 > eval)
                     {
                         eval = eval2;
-                        bestMoves[0] = m;
-                        count = 1;
                     }
                 }
                 else
@@ -64,16 +52,76 @@ public class MyBot : IChessBot
                     if (eval2 < eval)
                     {
                         eval = eval2;
-                        bestMoves[0] = m;
-                        count = 1;
                     }
                 }
             }
 
+            if (eval == isMatedVal(isWhiteToMove))
+            {
+                return bestPrev;
+            }
+            
+            //filter and sort
+            
+            Move[] bestMoves = new Move[moves.Length];//variable name is not accurate anymore
+            int[] evals2 = new int[moves.Length];
+            count = 0;
+            int i = 0;
+            foreach (Move c in moves)
+            {
+                if (timer.MillisecondsRemaining > timeLeftTargetLow)
+                {
+                    if (evals[i] != isMatedVal(isWhiteToMove))//non loosing moves
+                    {
+                        bestMoves[count] = c;
+                        evals2[count] = evals[i];
+                        count++;
+                    }
+                }
+                else if (evals[i] == eval)//best moves
+                {
+                    bestMoves[count] = c;
+                    count++;
+                }
+
+                i++;
+            }
+            
+            
+
+            if (timer.MillisecondsRemaining > timeLeftTargetHigh)
+            {
+                Array.Resize(ref bestMoves, count);
+                Array.Resize(ref evals2, count);
+                moves = bestMoves;
+                if (moves.Length == 1)
+                {
+                    //Console.WriteLine(depth);
+                    return moves[0];
+                }
+
+                if (timer.MillisecondsRemaining > timeLeftTargetLow)
+                {
+                    Array.Sort(evals2, moves);
+                    if (!isWhiteToMove)
+                    {
+                        moves.Reverse();
+                    }
+                }
+
+                bestPrev = moves[0];
+            }
+            else
+            {
+                //Console.WriteLine(depth);
+                return bestMoves[new Random().Next(count)];
+            }
+            
+
             depth++;
         }
-        Console.WriteLine(depth-1);
-        return bestMoves[new Random().Next(count)];
+        //Console.WriteLine(depth-1);
+        //return Move.NullMove;
     }
     
     public static readonly sbyte[] PIECE_VAL = {0,1,3,3,5,9,99};//king shouldn't matter
@@ -94,6 +142,8 @@ public class MyBot : IChessBot
     public static sbyte eval1(Board board)
     {
         Move[] moves = board.GetLegalMoves(true);
+
+        //bool isWhiteToMove = board.IsWhiteToMove;
         //*
         if (moves.Length == 0)
         {
@@ -123,43 +173,15 @@ public class MyBot : IChessBot
             }
         }
 
-        /*//edge case not worth the brain capacity cost
-        //promotion, does not check if move is legal which may me inaccurate
-        if (cap < 8)
+        
+        if (cap > 0)
         {
-            foreach (Piece piece in board.GetPieceList(PieceType.Pawn, board.IsWhiteToMove))
-            {
-                int rank = piece.Square.Rank;
-                int file = piece.Square.File;
-                if (board.IsWhiteToMove)
-                {
-                    if (rank == 6)
-                    {
-                        if (board.GetPiece(new Square(file, 7)).IsNull)
-                        {
-                            eval = 8;
-                            break;
-                        }
-                    }
-                }
-                else
-                {
-                    if (rank == 6)
-                    {
-                        if (board.GetPiece(new Square(file, 0)).IsNull)
-                        {
-                            eval = 8;
-                            break;
-                        }
-                    }
-                }
-            }
-
-            
+            cap *= 2;
+            cap--;//caps at final depth eval are worth half a piece less.
+            cap *= boolToSign(board.IsWhiteToMove);
+            return (sbyte)( eval + cap );
         }
-        */
-        cap *= boolToSign(board.IsWhiteToMove);
-        return (sbyte)(eval + cap);//eval is in whole points (*2), cap is in half points (1), overall means average of current and best next position
+        return eval;
     }
 
     public static sbyte boolToSign(bool b)
@@ -176,124 +198,34 @@ public class MyBot : IChessBot
         return (sbyte) (-126 * boolToSign(colorIsWhite));
     }
 
-    public static bool mateHunt(Board board, int n, bool hunterIsWhite)
-    {
-        bool isHunter = board.IsWhiteToMove == hunterIsWhite;
-        if (board.IsInCheckmate())
-        {
-            return !isHunter;
-        }
-        if (n <= 0)
-        {
-            return false;
-        }
-        Move[] moves = board.GetLegalMoves();
-        
-        //is hunter, looking for mate
-        if (isHunter)
-        {
-            for (int c=0; c<n; c++)
-            {
-                foreach (Move m in moves)
-                {
-                    board.MakeMove(m);
-                    bool huntRes = mateHunt(board, c, hunterIsWhite);
-                    board.UndoMove(m);
-                    if (huntRes)
-                    {
-                        return true;
-                    }
-                }
-            }
-
-            return false;
-        }
-        
-        
-        //not hunter, avoiding mate
-        foreach (Move m in moves)
-        {
-            board.MakeMove(m);
-            bool huntRes = mateHunt(board, n, hunterIsWhite);
-            board.UndoMove(m);
-            if (!huntRes)
-            {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
     public static sbyte evaln(Board board, int n, sbyte best_eval, bool best_eval_equal) //best_eval is for alpha beta pruning
     {
         if (n == 0)
         {
             return eval1(board);
         }
-        
-        //if (mateHunt(board, (n+1)/2, board.IsWhiteToMove))
-        //{
-        //    return (sbyte) (126 * boolToSign(board.IsWhiteToMove));
-        //}
-        // if (mateHunt(board, n/2, !board.IsWhiteToMove))
-        // {
-        //     return (sbyte) (-126 * boolToSign(board.IsWhiteToMove));
-        // }
+
+        bool isWhiteToMove = board.IsWhiteToMove;
         
         Move[] moves = moves_init_sorted(board.GetLegalMoves());
+        
+        sbyte eval = isMatedVal(isWhiteToMove);
+        
         if (moves.Length == 0)
         {
             if (board.IsInCheckmate())
             {
-                return isMatedVal(board.IsWhiteToMove);
+                return eval;
             }
             return 0;
         }
-        Move move = moves[0];
-        board.MakeMove(move);
-        sbyte eval = evaln(board, n - 1, 127,true);//first, don't do pruning
-        board.UndoMove(move);
-
-        if (eval == isMatedVal(!board.IsWhiteToMove))
-        {
-            return eval;
-        }
-
-        if (best_eval != 127)
-        {
-            if (best_eval_equal && eval == best_eval)
-            {
-                return best_eval;
-            }
-            if (board.IsWhiteToMove)
-            {
-                if (eval >= best_eval)
-                {
-                    return eval;
-                }
-            }
-            else
-            {
-                if (eval <= best_eval)
-                {
-                    return eval;
-                }
-            }
-        }
-
-        bool first = true;
+        
         foreach (Move m in moves)
         {
-            if (first)
-            {
-                first = false;
-                continue;
-            }
             board.MakeMove(m);
             sbyte eval2 = evaln(board, n - 1, eval, true);
             board.UndoMove(m);
-            if (eval2 == isMatedVal(!board.IsWhiteToMove))
+            if (eval2 == isMatedVal(!isWhiteToMove))
             {
                 return eval2;
             }
@@ -301,12 +233,12 @@ public class MyBot : IChessBot
             {
                 return best_eval;
             }
-            if (board.IsWhiteToMove)
+            if (isWhiteToMove)
             {
                 if (eval2 > eval)
                 {
                     eval = eval2;
-                    if (eval > best_eval && best_eval != 127)
+                    if (eval > best_eval)
                     {
                         return eval;
                     }
@@ -317,7 +249,7 @@ public class MyBot : IChessBot
                 if (eval2 < eval)
                 {
                     eval = eval2;
-                    if (eval < best_eval && best_eval != 127)
+                    if (eval < best_eval)
                     {
                         return eval;
                     }
@@ -362,7 +294,7 @@ public class MyBot : IChessBot
             }
         }
         
-        System.Array.Sort(evals,movesOut,0,countStart);
+        Array.Sort(evals,movesOut,0,countStart);
         return movesOut;
     }
     
