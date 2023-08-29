@@ -6,28 +6,38 @@ public class MyBot : IChessBot
 {
 
     //private Move[] movePreAlloc = new Move[256];
+    //private int[] intPreAlloc = new int[256];
+    private int baseEvalCalls;//for debug
 
     
-    //this method and the calls account for 123 token brain capacity, more now, idk how much
-    public static void moveStats(String type, int depth, int full_depth, int eval, int startTime, Timer timer, bool isWhiteMove)
+    //debug method, remove when done. This method and the calls account for 173 token brain capacity, increased due to adding base eval calls and padding
+    public void moveStats(String type, int depth, int full_depth, int eval, int startTime, Timer timer, bool isWhiteMove)
     {
-        Console.WriteLine((isWhiteMove ? "White  |  " : "Black  |  ")+ type + "  |  depth: " + depth + "("+full_depth+")  |  eval: " + (eval/2048.0) + "  |  time: " + (startTime - timer.MillisecondsRemaining) );
+        Console.WriteLine(
+            (isWhiteMove ? "White  |  " : "Black  |  ")
+            + type.PadRight(5)
+            + "  |  depth: " + (depth + "(" + full_depth + ")").PadRight(7)
+            + "  |  base eval calls: " + baseEvalCalls.ToString().PadRight(10)
+            + "  |  eval: " + (eval/2048.0).ToString().PadRight(20)
+            + "  |  time: " + (startTime - timer.MillisecondsRemaining)//.ToString().PadRight(10)
+            );
     }
     
     public Move Think(Board board, Timer timer)
     {
-        Move[] moves = moves_init_sorted(board.GetLegalMoves());
-        
-        //Move[] bestMoves = new Move[moves.Length];
-        int[] evals = new int[moves.Length];
+        baseEvalCalls = 0;///for debug
         
         bool isWhiteToMove = board.IsWhiteToMove;
         int depth = 0;
         int full_depth = 0;//depth reached in first time bracket, for debug, remove later
         int startTime = timer.MillisecondsRemaining;
-        int timeLeftTargetLow = (startTime * 995)/1000;
-        int timeLeftTargetHigh = (startTime * 99)/100;//make smaller gap maybe
+        int timeLeftTargetLow = (startTime * 999)/1000;
+        int timeLeftTargetHigh = (startTime * 98)/100;//make smaller gap maybe
 
+        // maybe add transposition table
+        
+        Move[] moves = moves_init_sorted(board.GetLegalMoves());
+        int[] evals = new int[moves.Length];
         Move bestPrev = moves[0];//if eval is loosing, return this and hope opponent does not see mate
 
         while (true)
@@ -137,63 +147,55 @@ public class MyBot : IChessBot
 
             depth++;
         }
-        //Console.WriteLine(depth-1);
-        //return Move.NullMove;
     }
     
     public static readonly byte[] PIECE_VAL = {0,1,3,3,5,9,11};//king shouldn't matter
-    public static readonly byte[] PIECE_CAP_CAP = {0,2,8,4,4,8,8};//possible capture targets
+    
+    //public static readonly byte[] PIECE_CAP_CAP = {0,2,8,4,4,8,8};//possible capture targets
     //public static readonly sbyte[] PIECE_VAL_RANK = {0,1,2,2,3,4,5};
     
-    /*
-    public static sbyte eval0(Board board)//method merged into eval1, will probably remove later
-    {
-        int eval = 0;
-        foreach (PieceList pieceList in board.GetAllPieceLists())
-        {
-            eval +=
-                boolToSign(pieceList.IsWhitePieceList)
-                * PIECE_VAL[(byte)pieceList.TypeOfPieceInList]
-                * pieceList.Count;
-        }
-        return (sbyte) (eval * 2);//*2 for odd numbers to represent half points
-    }
-    //*/
 
     public int eval1(Board board)
     {
-        //Move[] moves = board.GetLegalMoves(true);
+        //maybe add some center control eval
+        
+        baseEvalCalls++;//for debug
+        
+        
+        //bool isWhiteToMove = board.IsWhiteToMove;
+        
         int eval = 0;
-        int alloc = 0;
-        int alloc2 = 0;//computed but not used yet, for other player moves
         sbyte moveSign = boolToSign(board.IsWhiteToMove);
+        int pieceCount = 0;
         foreach (PieceList pieceList in board.GetAllPieceLists())
         {
+            pieceCount += pieceList.Count;
+            sbyte pieceSign = boolToSign(pieceList.IsWhitePieceList);
             byte pieceInt = (byte)pieceList.TypeOfPieceInList;
+            
             eval +=
-                boolToSign(pieceList.IsWhitePieceList)
+                pieceSign
                 * PIECE_VAL[pieceInt]
                 * pieceList.Count;
-            
-            int al = PIECE_CAP_CAP[pieceInt] * pieceList.Count;
-            if (pieceList.IsWhitePieceList == board.IsWhiteToMove)
+        }
+
+        //how close pawns are to promotion
+        if (pieceCount < 16)//is endgame
+        {
+            foreach (Piece piece in board.GetPieceList(PieceType.Pawn,true))
             {
-                alloc += al;
+                eval += piece.Square.Rank - 2;
             }
-            else
+            foreach (Piece piece in board.GetPieceList(PieceType.Pawn,false))
             {
-                alloc2 += al;
+                eval += piece.Square.Rank - 7;
             }
         }
 
         eval *= 2048;
         
-        System.Span<Move> moves = stackalloc Move[alloc];//112 is max captures possible (unrealistic circumstances)
-        board.GetLegalMovesNonAlloc(ref moves,true);
-        //does not seem to make a noticeable difference in performance here
+        Move[] moves = board.GetLegalMoves(true);
 
-        //bool isWhiteToMove = board.IsWhiteToMove;
-        //*
         if (moves.Length == 0)
         {
             if (board.IsInCheckmate())
@@ -206,91 +208,60 @@ public class MyBot : IChessBot
                 return 0;
             }
         }
-        //*/
-        //sbyte eval = eval0(board);
-        eval += moves.Length * moveSign;
+        
+        eval += moves.Length * moveSign;//squares controlled heuristic
         int cap = 0;
         foreach (Move move in moves)//captures only
         {
-            int cap2 = PIECE_VAL[(int)move.CapturePieceType];
-            if (move.IsPromotion)
-            {
-                cap2 += 8;//9-1 assume queen promotion
-            }
+            int cap2 = moveCapVal(move);
+            
             if (cap2 > cap)
             {
                 cap = cap2;
             }
-            eval += cap2 * moveSign * 4;
+            eval += cap2 * moveSign * 4;//all possible captures
         }
-
         
-        // if (cap > 0)
-        // {
-        eval += cap * moveSign * 512;
-        // }
+        eval += cap * moveSign * 512;//best capture
         
         
-        
-        if (board.TrySkipTurn())
+        board.ForceSkipTurn();
+        moves = board.GetLegalMoves(true);
+        board.UndoSkipTurn();
+        cap = 0;
+        eval -= moves.Length * moveSign;//squares controlled heuristic
+        foreach (Move move in moves)
         {
-            moves = stackalloc Move[alloc2];//112 is max captures possible (unrealistic circumstances)
-            board.GetLegalMovesNonAlloc(ref moves, true);
-            board.UndoSkipTurn();
-            cap = 0;
-            eval -= moves.Length * moveSign;
-            foreach (Move move in moves) //captures only
+            int cap2 = moveCapVal(move);
+
+            if (cap2 > cap)
             {
-                int cap2 = PIECE_VAL[(int)move.CapturePieceType];
-                if (move.IsPromotion)
-                {
-                    cap2 += 8; //9-1 assume queen promotion
-                }
-
-                if (cap2 > cap)
-                {
-                    cap = cap2;
-                }
-
-                eval -= cap2 * moveSign * 4;//negative for other color
+                cap = cap2;
             }
 
-
-            // if (cap > 0)
-            // {
-            eval -= cap * moveSign * 128;//negative for other color
-            // }
+            eval -= cap2 * moveSign * 4;//all possible captures,negative for other color
         }
-        else//in check, atm is biggest value, subject to change, might use force skip instead
-        {
-            eval -= moveSign * 3072;//128*(9+9-1+1)=128*18=2304, make bigger, 2048+1024=3072
-        }
-
+        
+        eval -= cap * moveSign * 128;//best capture, negative for other color
+        
         return eval;
     }
 
     public static sbyte boolToSign(bool b)
     {
-        /*
-        if (b)
-        {
-            return 1;
-        }
-        return -1;
-        */
-        return (sbyte)(b ? 1 : -1);//probably the same performance, might revert
+        return (sbyte)(b ? 1 : -1);
     }
     
     static int isMatedVal(bool colorIsWhite)
     {
-        return -126 * 2048 * boolToSign(colorIsWhite);
+        return -258048 * boolToSign(colorIsWhite);//-126 * 2048=-258048
     }
 
     public int evaln(Board board, int n, int best_eval, bool best_eval_equal) //best_eval is for alpha beta pruning
     {
         if (n == 0)
         {
-            return eval1(board);
+            return eval1(board);//maybe do similar thing to Sebastian's bot where it does a capture only search here before doing base eval. Not sure how to consider when it's better not to capture (e.g. only suicidal captures available).
         }
 
         bool isWhiteToMove = board.IsWhiteToMove;
@@ -308,6 +279,8 @@ public class MyBot : IChessBot
             return 0;
         }
         
+        //maybe do iterative deepening up to n-1, filter and sort each iteration, might improve alpha-beta pruning,
+        //depth for loop here around the move loop
         foreach (Move m in moves)
         {
             board.MakeMove(m);
@@ -321,7 +294,7 @@ public class MyBot : IChessBot
             {
                 return best_eval;
             }
-            if (isWhiteToMove)
+            if (isWhiteToMove)//there might be a way to remove duplication and maybe reduce branching
             {
                 if (eval2 > eval)
                 {
@@ -348,26 +321,17 @@ public class MyBot : IChessBot
         return eval;
     }
 
-    public static Move[] moves_init_sorted(Move[] moves)//helps alpha beta pruning
+    public Move[] moves_init_sorted(Move[] moves)//helps alpha beta pruning, consider optimizing this function
     {
-        Move[] movesOut = new Move[moves.Length];
+        
+        Move[] movesOut = new Move[moves.Length];//moybe use a (bot)global prealloc?
         int countStart = 0;
         int countEnd = moves.Length - 1;
-        int[] evals = new int[moves.Length];
+        int[] evals = new int[moves.Length];//moybe use a (bot)global prealloc?
         
         foreach (Move m in moves)
         {
-            byte cap = 0;
-            if (m.IsCapture)
-            {
-                cap = PIECE_VAL[(byte)m.CapturePieceType];
-            }
-
-            if (m.IsPromotion)
-            {
-                cap += PIECE_VAL[(byte)m.PromotionPieceType];
-                cap--;
-            }
+            byte cap = moveCapVal(m);
 
             if (cap > 0)
             {
@@ -384,6 +348,14 @@ public class MyBot : IChessBot
         
         Array.Sort(evals,movesOut,0,countStart);
         return movesOut;
+    }
+
+    public static byte moveCapVal(Move m)//also considers promotion value
+    {
+        return (byte) (
+            PIECE_VAL[(byte)m.CapturePieceType]
+            + Convert.ToByte(m.IsPromotion) * (PIECE_VAL[(byte)m.PromotionPieceType] - 1)//-1 represents the pawn promoted
+            );
     }
     
 }
