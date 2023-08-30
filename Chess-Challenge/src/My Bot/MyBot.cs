@@ -10,16 +10,16 @@ public class MyBot : IChessBot
     private uint baseEvalCalls;//for debug
 
     
-    //debug method, remove when done. This method and the calls account for 248 token brain capacity
+    //debug method, remove when done. This method and the calls account for 245 token brain capacity
     public void moveStats(String type, int depth, int full_depth, int eval, int startTime, Timer timer, bool isWhiteMove)
     {
         Console.WriteLine(
             (isWhiteMove ? "White  |  " : "Black  |  ")
-            + type.PadRight(5)
-            + "  |  depth: " + (depth + "(" + full_depth + ")").PadRight(7)
-            + "  |  base eval calls: " + baseEvalCalls.ToString().PadRight(10)
-            + "  |  eval: " + ((eval/2048.0)<0 ? "" + (eval/2048.0) : " "+(eval/2048.0)).PadRight(20)
-            + "  |  time:" + ((startTime - timer.MillisecondsRemaining)/1000.0d) + "s"
+            + type.PadRight(7)
+            + "|  depth: " + (depth + "(" + full_depth + ")").PadRight(9)
+            + "|  base eval calls: " + baseEvalCalls.ToString("N0").PadRight(12)
+            + "|  eval: " + ((eval/2048.0)<0 ? "" + (eval/2048.0) : " "+(eval/2048.0)).PadRight(22)
+            + "|  time: " + ((startTime - timer.MillisecondsRemaining)/1000.0d) + "s"
             );
     }
     
@@ -45,20 +45,22 @@ public class MyBot : IChessBot
         int[] evals = new int[moves.Length];
         Move bestPrev = moves[0];//if eval is loosing, return this and hope opponent does not see mate
 
+        int mateVal = isMatedVal(isWhiteToMove);
+        
         while (true)
         {
 
             byte count = 0;
-            int eval = isMatedVal(isWhiteToMove);
+            int eval = mateVal;
             
-            foreach (Move m in moves)
+            foreach (Move m in moves)// code duplication with evaln, see if it's possible to reduce
             {
                 
                 board.MakeMove(m);
                 int eval2 = evaln(board, depth, eval, false);
                 board.UndoMove(m);
                 
-                if (eval2 == isMatedVal(!isWhiteToMove))
+                if (eval2 == -mateVal)
                 {
                     moveStats("Win ",depth,full_depth,eval2,startTime,timer,isWhiteToMove);
                     return m;
@@ -82,7 +84,7 @@ public class MyBot : IChessBot
                 }
             }
 
-            if (eval == isMatedVal(isWhiteToMove))
+            if (eval == mateVal)
             {
                 moveStats("Lose",depth,full_depth,eval,startTime,timer,isWhiteToMove);
                 return bestPrev;
@@ -94,11 +96,13 @@ public class MyBot : IChessBot
             int[] evals2 = new int[moves.Length];
             count = 0;
             byte i = 0;
+            int t = timer.MillisecondsRemaining;
+            
             foreach (Move c in moves)
             {
-                if (timer.MillisecondsRemaining > timeLeftTargetLow)
+                if (t > timeLeftTargetLow)
                 {
-                    if (evals[i] != isMatedVal(isWhiteToMove))//non loosing moves
+                    if (evals[i] != mateVal)//non loosing moves
                     {
                         bestMoves[count] = c;
                         evals2[count] = evals[i];
@@ -113,8 +117,6 @@ public class MyBot : IChessBot
 
                 i++;
             }
-
-            int t = timer.MillisecondsRemaining;
 
             if (t > timeLeftTargetHigh)
             {
@@ -135,9 +137,9 @@ public class MyBot : IChessBot
                 {
                     full_depth++;
                     Array.Sort(evals2, moves);
-                    if (!isWhiteToMove)
+                    if (isWhiteToMove)
                     {
-                        moves.Reverse();
+                        Array.Reverse(moves);//best moves first
                     }
                 }
 
@@ -154,7 +156,7 @@ public class MyBot : IChessBot
         }
     }
     
-    private static readonly byte[] PIECE_VAL = {0,1,3,3,5,9,11};//king shouldn't matter
+    private static readonly byte[] PIECE_VAL = {0,1,3,3,5,9,11};
     
     //public static readonly byte[] PIECE_CAP_CAP = {0,2,8,4,4,8,8};//possible capture targets
     //public static readonly sbyte[] PIECE_VAL_RANK = {0,1,2,2,3,4,5};
@@ -162,6 +164,8 @@ public class MyBot : IChessBot
 
     private int eval1(Board board)
     {
+        //draw and checkmate should already be checked in parent evaln
+        
         //maybe add some center control eval
         
         baseEvalCalls++;//for debug
@@ -200,19 +204,6 @@ public class MyBot : IChessBot
         eval *= 2048;
         
         Move[] moves = board.GetLegalMoves(true);
-
-        if (moves.Length == 0)
-        {
-            if (board.IsInCheckmate())
-            {
-                return isMatedVal(board.IsWhiteToMove);
-            }
-
-            // if (board.IsDraw())
-            // {
-            //     return 0;
-            // }
-        }
         
         eval += moves.Length * moveSign;//squares controlled heuristic
         int cap = 0;
@@ -262,31 +253,27 @@ public class MyBot : IChessBot
         return -258048 * boolToSign(colorIsWhite);//-126 * 2048=-258048
     }
 
-    private int evaln(Board board, int n, int best_eval, bool best_eval_equal) //best_eval is for alpha beta pruning
+    private int evaln(Board board, int n, int best_eval, bool best_eval_equal) //best_eval is for alpha beta pruning, investigate if proper alpha-beta needs a second value
     {
         if (board.IsDraw())
         {
             return 0;
         }
+        
+        bool isWhiteToMove = board.IsWhiteToMove;
+        int eval = isMatedVal(isWhiteToMove);
+        
+        if (board.IsInCheckmate())
+        {
+            return eval;
+        }
+        
         if (n == 0)
         {
             return eval1(board);//maybe do similar thing to Sebastian's bot where it does a capture only search here before doing base eval. Not sure how to consider when it's better not to capture (e.g. only suicidal captures available).
         }
 
-        bool isWhiteToMove = board.IsWhiteToMove;
-
         Move[] moves = moves_init_sorted(board.GetLegalMoves());
-
-        int eval = isMatedVal(isWhiteToMove);
-        
-        if (moves.Length == 0)
-        {
-            if (board.IsInCheckmate())
-            {
-                return eval;
-            }
-            //return 0;
-        }
         
         //maybe do iterative deepening up to n-1, filter and sort each iteration, might improve alpha-beta pruning,
         //depth for loop here around the move loop
@@ -303,7 +290,7 @@ public class MyBot : IChessBot
             {
                 return best_eval;
             }
-            if (isWhiteToMove)//there might be a way to remove duplication and maybe reduce branching
+            if (isWhiteToMove)//there might be a way to remove duplication and maybe reduce branching by refactoring to negamax, this whole block has 40 tokens
             {
                 if (eval2 > eval)
                 {
@@ -380,6 +367,14 @@ public class MyBot : IChessBot
             - Convert.ToByte(m.IsPromotion)//if promotion, -1 for pawn that is replaced
             );
     }
+
+    // private static bool moveIsCheck(Move m, Board board)//28 tokens + calls
+    // {
+    //     board.MakeMove(m);
+    //     bool check = board.IsInCheck();
+    //     board.UndoMove(m);
+    //     return check;
+    // }
     
 }
 
