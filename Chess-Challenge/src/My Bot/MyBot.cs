@@ -377,7 +377,7 @@ public class MyBot : IChessBot
         return (byte) (
             PIECE_VAL[(byte)m.CapturePieceType]
             + PIECE_VAL[(byte)m.PromotionPieceType]
-            - Convert.ToByte(m.IsPromotion)//if not a promotion, -1 for pawn that is replaced
+            - Convert.ToByte(m.IsPromotion)//if promotion, -1 for pawn that is replaced
             );
     }
     
