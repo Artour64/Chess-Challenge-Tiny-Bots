@@ -6,7 +6,7 @@ public class MyBot : IChessBot
 {
 
     private Move[] movePreAlloc = new Move[256];
-    //private byte[] bytePreAlloc = new byte[256];
+    private byte[] bytePreAlloc = new byte[256];
     private uint baseEvalCalls;//for debug
 
     
@@ -31,7 +31,7 @@ public class MyBot : IChessBot
         byte depth = 0;
         byte full_depth = 0;//depth reached in first time bracket, for debug, remove later
         int startTime = timer.MillisecondsRemaining;
-        /*
+        //*
         int timeLeftTargetLow = (startTime * 99)/100;
         int timeLeftTargetHigh = (startTime * 95)/100;//make smaller gap maybe
         /*/
@@ -330,19 +330,14 @@ public class MyBot : IChessBot
         return eval;
     }
     
-    private Move[] moves_init_sorted(Move[] moves)//helps alpha beta pruning, v3
+    private Move[] moves_init_sorted(Move[] moves)//helps alpha beta pruning
     {
-        // consider optimizing this function
-        // maybe make it in place to remove preAlloc,
-        // maybe also try to put checking moves first
-        
+        //maybe put checks first
         //return moves;
-        
-        byte bestCap = 0;
-        byte bestCapInd = 0;
         
         byte countStart = 0;
         byte countEnd = (byte)(moves.Length - 1);
+        bool hasCap = false;
         
         foreach (Move m in moves)
         {
@@ -350,12 +345,9 @@ public class MyBot : IChessBot
 
             if (cap > 0)
             {
+                hasCap = true;
                 movePreAlloc[countStart] = m;
-                if (cap > bestCap)
-                {
-                    bestCap = cap;
-                    bestCapInd = countStart;
-                }
+                bytePreAlloc[countStart] = (byte)(32-cap);//invert for backwards sort
                 countStart++;
             }
             else
@@ -364,26 +356,28 @@ public class MyBot : IChessBot
                 countEnd--;
             }
         }
-        
-        if (bestCap > 0)
+
+        if (hasCap)//if no cap, nothing to sort
         {
             for (byte i = 0; i < moves.Length; i++)
             {
                 moves[i] = movePreAlloc[i];
             }
-            //swap best to front
-            moves[bestCapInd] = movePreAlloc[0];
-            moves[0] = movePreAlloc[bestCapInd];
+
+            Array.Sort(bytePreAlloc, moves, 0,
+                countStart);
         }
 
         return moves;
     }
+    //*/
 
     private static byte moveCapVal(Move m)//also considers promotion value
     {
         return (byte) (
             PIECE_VAL[(byte)m.CapturePieceType]
-            + Convert.ToByte(m.IsPromotion) * (PIECE_VAL[(byte)m.PromotionPieceType] - 1)//-1 represents the pawn promoted
+            + PIECE_VAL[(byte)m.PromotionPieceType]
+            - Convert.ToByte(m.IsPromotion)//if not a promotion, -1 for pawn that is replaced
             );
     }
     
