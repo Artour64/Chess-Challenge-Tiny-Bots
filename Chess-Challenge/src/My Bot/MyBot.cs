@@ -1,22 +1,25 @@
 ﻿using System;
-using System.Linq;
 using ChessChallenge.API;
 
 public class MyBot : IChessBot
 {
 
     private Move[] movePreAlloc = new Move[256];
-    private byte[] bytePreAlloc = new byte[256];
-    private uint baseEvalCalls;//for debug
-
+    private byte[] bytePreAlloc = new byte[246];
     
-    //debug method, remove when done. This method and the calls account for 245 token brain capacity
+    private uint baseEvalCalls;//for debug
+    private uint treeNodes;//for debug
+
+    //var increment is 2 tokens;
+    
+    //debug method, remove when done. This method and the calls account for 276 token brain capacity
     public void moveStats(String type, int depth, int full_depth, int eval, int startTime, Timer timer, bool isWhiteMove)
     {
         Console.WriteLine(
             (isWhiteMove ? "White  |  " : "Black  |  ")
             + type.PadRight(7)
             + "|  depth: " + (depth + "(" + full_depth + ")").PadRight(9)
+            + "|  tree nodes: " + treeNodes.ToString("N0").PadRight(12)
             + "|  base eval calls: " + baseEvalCalls.ToString("N0").PadRight(12)
             + "|  eval: " + ((eval/2048.0)<0 ? "" + (eval/2048.0) : " "+(eval/2048.0)).PadRight(22)
             + "|  time: " + ((startTime - timer.MillisecondsRemaining)/1000.0d) + "s"
@@ -25,14 +28,15 @@ public class MyBot : IChessBot
     
     public Move Think(Board board, Timer timer)
     {
-        baseEvalCalls = 0;///for debug
+        baseEvalCalls = 0;//for debug
+        treeNodes = 0;//for debug
         
         bool isWhiteToMove = board.IsWhiteToMove;
         byte depth = 0;
         byte full_depth = 0;//depth reached in first time bracket, for debug, remove later
         int startTime = timer.MillisecondsRemaining;
         //*
-        int timeLeftTargetLow = (startTime * 99)/100;
+        int timeLeftTargetLow = (startTime * 98)/100;
         int timeLeftTargetHigh = (startTime * 95)/100;//make smaller gap maybe
         /*/
         int timeLeftTargetLow = (startTime * 999)/1000;
@@ -40,8 +44,9 @@ public class MyBot : IChessBot
         //*/
 
         // maybe add transposition table
-        
-        Move[] moves = moves_init_sorted(board.GetLegalMoves());
+
+        Move[] moves = board.GetLegalMoves();
+        moves_init_sorted(moves,board,0);
         int[] evals = new int[moves.Length];
         Move bestPrev = moves[0];//if eval is loosing, return this and hope opponent does not see mate
 
@@ -205,7 +210,7 @@ public class MyBot : IChessBot
         
         Move[] moves = board.GetLegalMoves(true);
         
-        eval += moves.Length * moveSign;//squares controlled heuristic
+        //eval += moves.Length * moveSign;//squares controlled heuristic
         int cap = 0;
         foreach (Move move in moves)//captures only
         {
@@ -224,8 +229,9 @@ public class MyBot : IChessBot
         board.ForceSkipTurn();
         moves = board.GetLegalMoves(true);
         board.UndoSkipTurn();
+        
+        //eval -= moves.Length * moveSign;//squares controlled heuristic
         cap = 0;
-        eval -= moves.Length * moveSign;//squares controlled heuristic
         foreach (Move move in moves)
         {
             int cap2 = moveCapVal(move);
@@ -253,8 +259,10 @@ public class MyBot : IChessBot
         return -258048 * boolToSign(colorIsWhite);//-126 * 2048=-258048
     }
 
-    private int evaln(Board board, int n, int best_eval, bool best_eval_equal) //best_eval is for alpha beta pruning, investigate if proper alpha-beta needs a second value
+    private int evaln(Board board, byte n, int best_eval, bool best_eval_equal) //best_eval is for alpha beta pruning, investigate if proper alpha-beta needs a second value
     {
+        treeNodes++;//for debug
+        
         if (board.IsDraw())
         {
             return 0;
@@ -273,14 +281,16 @@ public class MyBot : IChessBot
             return eval1(board);//maybe do similar thing to Sebastian's bot where it does a capture only search here before doing base eval. Not sure how to consider when it's better not to capture (e.g. only suicidal captures available).
         }
 
-        Move[] moves = moves_init_sorted(board.GetLegalMoves());
+        Move[] moves = board.GetLegalMoves();
+        moves_init_sorted(moves,board,n);//last argument is a parameter, consider tweaking, n>0 is same as true means always check, false means never check
         
-        //maybe do iterative deepening up to n-1, filter and sort each iteration, might improve alpha-beta pruning,
+        //maybe do iterative deepening up to n, filter and sort each iteration, might improve alpha-beta pruning,
         //depth for loop here around the move loop
+        n--;
         foreach (Move m in moves)
         {
             board.MakeMove(m);
-            int eval2 = evaln(board, n - 1, eval, true);
+            int eval2 = evaln(board, n, eval, true);
             board.UndoMove(m);
             if (eval2 == isMatedVal(!isWhiteToMove))
             {
@@ -316,10 +326,9 @@ public class MyBot : IChessBot
 
         return eval;
     }
-    
-    private Move[] moves_init_sorted(Move[] moves)//helps alpha beta pruning
+    //*
+    private void moves_init_sorted(Move[] moves, Board board, byte depth)//helps alpha beta pruning
     {
-        //maybe put checks first
         //return moves;
         
         byte countStart = 0;
@@ -328,7 +337,15 @@ public class MyBot : IChessBot
         
         foreach (Move m in moves)
         {
-            byte cap = moveCapVal(m);
+            byte cap = 0;
+
+            if (depth > 3)//0 is very slow, 1 is about the same, subject to tweaking, also this may change if moveIsCheck is optimized
+            {
+                cap = Convert.ToByte(moveIsCheck(m, board));
+                cap *= 4;//tweakable parameter, if 1 ,line is redundant
+            }
+
+            cap += moveCapVal(m);
 
             if (cap > 0)
             {
@@ -351,11 +368,98 @@ public class MyBot : IChessBot
                 moves[i] = movePreAlloc[i];
             }
 
-            Array.Sort(bytePreAlloc, moves, 0,
-                countStart);
+            Array.Sort(bytePreAlloc, moves, 0, countStart);
+        }
+    }
+    /*/
+    private void moves_init_sorted(Move[] moves, Board board)//helps alpha beta pruning
+    {
+        //this version uses a lot of tokens and is slow, will probably delete
+        
+        //maybe put checks first
+        //return moves;
+        byte moveLen = (byte)moves.Length;
+        byte countStartCheck = 0;
+        byte countEndCheck = (byte)(moveLen - 1);
+        
+        byte countStart = moveLen;
+        byte countEnd = (byte) (moveLen + countEndCheck);
+        
+        bool hasCap = false;//or check
+        
+        foreach (Move m in moves)
+        {
+            byte cap = moveCapVal(m);
+
+            if (moveIsCheck(m,board))
+            {
+                hasCap = true;
+                if (cap > 0)
+                {
+                    movePreAlloc[countStartCheck] = m;
+                    bytePreAlloc[countStartCheck] = (byte)(32 - cap); //invert for backwards sort
+                    countStartCheck++;
+                }
+                else
+                {
+                    movePreAlloc[countEndCheck] = m;
+                    countEndCheck--;
+                }
+            }
+            else
+            {
+                if (cap > 0)
+                {
+                    hasCap = true;
+                    movePreAlloc[countStart] = m;
+                    bytePreAlloc[countStart] = (byte)(32 - cap); //invert for backwards sort
+                    countStart++;
+                }
+                else
+                {
+                    movePreAlloc[countEnd] = m;
+                    countEnd--;
+                }
+            }
         }
 
-        return moves;
+        if (hasCap)//if no cap or check, nothing to sort
+        {
+            //check + capture
+            for (byte i = 0; i < countStartCheck; i++)
+            {
+                moves[i] = movePreAlloc[i];
+            }
+            Array.Sort(bytePreAlloc, moves, 0, countStartCheck);
+            
+            //check + no capture
+            byte ind = countStartCheck;
+            countEndCheck++;
+            Array.Sort(bytePreAlloc, movePreAlloc, countEndCheck, moveLen - countEndCheck);//indicies of prealloc and moves don't match I need to sort first;
+            for (byte i = countEndCheck; i < moveLen; i++)
+            {
+                moves[ind] = movePreAlloc[i];
+                ind++;
+            }
+            
+            //capture
+            Array.Sort(bytePreAlloc, movePreAlloc, moveLen, countStart - moveLen);
+            for (byte i = moveLen; i < countStart; i++)
+            {
+                moves[ind] = movePreAlloc[i];
+                ind++;
+            }
+            
+            //no capture
+            countEnd++;
+            moveLen *= 2;
+            Array.Sort(bytePreAlloc, movePreAlloc, countEnd, moveLen - countEnd);//indicies of prealloc and moves don't match I need to sort first;
+            for (byte i = countEnd; i < moveLen; i++)
+            {
+                moves[ind] = movePreAlloc[i];
+                ind++;
+            }
+        }
     }
     //*/
 
@@ -368,13 +472,15 @@ public class MyBot : IChessBot
             );
     }
 
-    // private static bool moveIsCheck(Move m, Board board)//28 tokens + calls
-    // {
-    //     board.MakeMove(m);
-    //     bool check = board.IsInCheck();
-    //     board.UndoMove(m);
-    //     return check;
-    // }
+    private static bool moveIsCheck(Move m, Board board)//28 tokens + calls
+    {
+        //this method is very slow, maybe make faster version
+        //maybe inline it if only used once to reduce tokens
+        board.MakeMove(m);
+        bool check = board.IsInCheck();
+        board.UndoMove(m);
+        return check;
+    }
     
 }
 
