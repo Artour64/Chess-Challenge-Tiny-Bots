@@ -9,10 +9,22 @@ public class MyBot : IChessBot
     
     private uint baseEvalCalls;//for debug
     private uint treeNodes;//for debug
-
-    //var increment is 2 tokens;
     
-    //debug method, remove when done. This method and the calls account for 278 token brain capacity
+    //debug tokens:
+    //class: 4
+    //Think: 12
+    //eval1: 2
+    //evaln: 4
+    //total: 22
+    //plus moveStats: 298
+    //----
+    //allowed tokens: 1322
+    //free tokens 14
+
+    //var increment is 2 tokens
+    //var declare + init is 4 tokens
+    
+    //debug method, remove when done. This method and the calls account for 276 token brain capacity
     private void moveStats(String type, int depth, int full_depth, int eval, int startTime, Timer timer, bool isWhiteMove)
     {
         Console.WriteLine(
@@ -39,8 +51,8 @@ public class MyBot : IChessBot
         int timeLeftTargetLow = (startTime * 995)/1000;
         int timeLeftTargetHigh = (startTime * 95)/100;
         /*/
-        int timeLeftTargetLow = (startTime * 999)/1000;
-        int timeLeftTargetHigh = (startTime * 99)/100;
+        int timeLeftTargetLow = (startTime * 9999)/10000;
+        int timeLeftTargetHigh = (startTime * 999)/1000;
         //*/
 
         // maybe add transposition table
@@ -175,7 +187,7 @@ public class MyBot : IChessBot
     
     //public static readonly byte[] PIECE_CAP_CAP = {0,2,8,4,4,8,8};//possible capture targets
     //public static readonly sbyte[] PIECE_VAL_RANK = {0,1,2,2,3,4,5};
-    
+    private static readonly byte[] PAWN_DIST_VAL = {0,1,3,6,10,15};//closer is worth more non linearly
 
     private int eval1(Board board)
     {
@@ -211,13 +223,15 @@ public class MyBot : IChessBot
         if (pieceCount < 16)//is endgame
         {
             //*
+            //maybe adjust it to prioritize pushing pawns that are closer to promotion
+            
             foreach (Piece piece in board.GetPieceList(PieceType.Pawn,true))
             {
-                eval += piece.Square.Rank - 2;
+                eval += PAWN_DIST_VAL[piece.Square.Rank - 1];
             }
             foreach (Piece piece in board.GetPieceList(PieceType.Pawn,false))
             {
-                eval += piece.Square.Rank - 7;
+                eval -= PAWN_DIST_VAL[6 - piece.Square.Rank];
             }
             /*/
             //uses too many tokens, does not help in early and mid game
