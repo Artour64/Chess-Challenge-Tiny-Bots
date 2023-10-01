@@ -2,14 +2,14 @@
 using ChessChallenge.API;
 
 //V imports for reducing tokens, they exist in the allowed above namespaces V
-using static System.Array;
+//using static System.Array;//removed just in case it might break allowed namespace rule
 //using static ChessChallenge.API.BitboardHelper;//used mostly in alt eval1
 //using static System.Convert;//used mostly in alt eval1
 
 public class MyBot : IChessBot
 {
-    private uint baseEvalCalls;//for debug
-    private uint treeNodes;//for debug
+    //private uint baseEvalCalls;//for debug
+    //private uint treeNodes;//for debug
     
     private Board board;//reduce tokens by not needing to pass it into every function
     
@@ -37,18 +37,18 @@ public class MyBot : IChessBot
     //1 token per argument in function call
     
     //debug method, remove when done. This method and the calls account for 276 token brain capacity
-    private void moveStats(String type, int depth, int full_depth, int eval, int startTime, Timer timer, bool isWhiteMove)
-    {
-        Console.WriteLine(
-            (isWhiteMove ? "White  |  " : "Black  |  ")
-            + type.PadRight(7)
-            + "|  depth: " + (depth + "(" + full_depth + ")").PadRight(9)
-            + "|  tree nodes: " + treeNodes.ToString("N0").PadRight(12)
-            + "|  base eval calls: " + baseEvalCalls.ToString("N0").PadRight(12)
-            + "|  eval: " + ((eval/2048.0)<0 ? "" + (eval/2048.0) : " "+(eval/2048.0)).PadRight(22)
-            + "|  time: " + ((startTime - timer.MillisecondsRemaining)/1000.0d) + "s"
-            );
-    }
+    // private void moveStats(String type, int depth, int full_depth, int eval, int startTime, Timer timer, bool isWhiteMove)
+    // {
+    //     Console.WriteLine(
+    //         (isWhiteMove ? "White  |  " : "Black  |  ")
+    //         + type.PadRight(7)
+    //         + "|  depth: " + (depth + "(" + full_depth + ")").PadRight(9)
+    //         + "|  tree nodes: " + treeNodes.ToString("N0").PadRight(12)
+    //         + "|  base eval calls: " + baseEvalCalls.ToString("N0").PadRight(12)
+    //         + "|  eval: " + ((eval/2048.0)<0 ? "" + (eval/2048.0) : " "+(eval/2048.0)).PadRight(22)
+    //         + "|  time: " + ((startTime - timer.MillisecondsRemaining)/1000.0d) + "s"
+    //         );
+    // }
     public Move Think(Board boardIn, Timer timer)//I hope I'm allowed to rename the variable, saves 2 tokens
     {
         board = boardIn;
@@ -56,8 +56,8 @@ public class MyBot : IChessBot
     // {
     //     this.board = board;
         
-        baseEvalCalls = 0;//for debug
-        treeNodes = 0;//for debug
+        //baseEvalCalls = 0;//for debug
+        //treeNodes = 0;//for debug
         
         Move[] moves = board.GetLegalMoves(),
             bestMoves;
@@ -69,7 +69,7 @@ public class MyBot : IChessBot
         byte depth = 0, i, count,
             movesLen = (byte)moves.Length;
         byte full_depth = 0;//depth reached in first time bracket, for debug, remove later
-        int t, eval=0,//eval = 0 for debug
+        int t, eval,
             eval2,
             startTime = timer.MillisecondsRemaining,
             mateVal = isMatedVal(isWhiteToMove),
@@ -102,8 +102,8 @@ public class MyBot : IChessBot
                     {
                         return bestPrev;
                     }
-                    Resize(ref moves, count);
-                    Resize(ref evals, count);
+                    Array.Resize(ref moves, count);
+                    Array.Resize(ref evals, count);
                     movesLen = count;
                     break;
                 }
@@ -114,7 +114,7 @@ public class MyBot : IChessBot
                 
                 if (eval2 == -mateVal)
                 {
-                    moveStats("Win ",depth,full_depth,eval2,startTime,timer,isWhiteToMove);
+                    //moveStats("Win ",depth,full_depth,eval2,startTime,timer,isWhiteToMove);
                     return m;
                 }
 
@@ -143,7 +143,7 @@ public class MyBot : IChessBot
 
             if (eval == mateVal)
             {
-                moveStats("Lose",depth,full_depth,eval,startTime,timer,isWhiteToMove);
+                //moveStats("Lose",depth,full_depth,eval,startTime,timer,isWhiteToMove);
                 return bestPrev;
             }
             
@@ -180,25 +180,25 @@ public class MyBot : IChessBot
             {
                 if (count < movesLen)
                 {
-                    Resize(ref bestMoves, count);
-                    Resize(ref evals2, count);
+                    Array.Resize(ref bestMoves, count);
+                    Array.Resize(ref evals2, count);
                     movesLen = count;
                 }
 
                 moves = bestMoves;
                 if (movesLen == 1)
                 {
-                    moveStats("Best",depth,full_depth,eval,startTime,timer,isWhiteToMove);
+                    //moveStats("Best",depth,full_depth,eval,startTime,timer,isWhiteToMove);
                     return moves[0];
                 }
 
                 if (t > timeLeftTargetLow)
                 {
                     full_depth++;
-                    Sort(evals2, moves);
+                    Array.Sort(evals2, moves);
                     if (isWhiteToMove)
                     {
-                        Reverse(moves);//best moves first
+                        Array.Reverse(moves);//best moves first
                     }
                 }
 
@@ -206,7 +206,7 @@ public class MyBot : IChessBot
             }
             else
             {
-                moveStats("Rand",depth,full_depth,eval,startTime,timer,isWhiteToMove);
+                //moveStats("Rand",depth,full_depth,eval,startTime,timer,isWhiteToMove);
                 return bestMoves[new Random().Next(count)];
             }
             
@@ -340,7 +340,7 @@ public class MyBot : IChessBot
         
         //maybe add some center control eval
         
-        baseEvalCalls++;//for debug
+        //baseEvalCalls++;//for debug
         
         
         //bool isWhiteToMove = board.IsWhiteToMove;
@@ -433,7 +433,7 @@ public class MyBot : IChessBot
 
     private int evaln(byte n, int best_eval, bool best_eval_equal) //best_eval is for alpha beta pruning, investigate if proper alpha-beta needs a second value
     {
-        treeNodes++;//for debug
+        //treeNodes++;//for debug
         
         if (board.IsDraw())
         {
@@ -450,7 +450,7 @@ public class MyBot : IChessBot
         
         if (n == 0)
         {
-            treeNodes--;//for debug
+            //treeNodes--;//for debug
             
             return eval1();
             //maybe do similar thing to Sebastian's bot where it does a capture only search here before doing base eval. Not sure how to consider when it's better not to capture (e.g. only suicidal captures available).
@@ -563,7 +563,7 @@ public class MyBot : IChessBot
                 moves[i] = movePreAlloc[i];
             }
 
-            Sort(bytePreAlloc, moves, 0, countStart);
+            Array.Sort(bytePreAlloc, moves, 0, countStart);
         }
     }
     
