@@ -69,12 +69,13 @@ public class MyBot : IChessBot
         byte depth = 0, i, count,
             movesLen = (byte)moves.Length;
         byte full_depth = 0;//depth reached in first time bracket, for debug, remove later
-        int t, eval, eval2,
+        int t, eval=0,//eval = 0 for debug
+            eval2,
             startTime = timer.MillisecondsRemaining,
             mateVal = isMatedVal(isWhiteToMove),
         //*
             timeLeftTargetLow = startTime * 995/1000,
-            timeLeftTargetHigh = startTime * 95/100;
+            timeLeftTargetHigh = startTime * 90/100;
         /*/
             timeLeftTargetLow = startTime * 9999/10000,
             timeLeftTargetHigh = startTime * 999/1000;
@@ -174,7 +175,8 @@ public class MyBot : IChessBot
                 i++;
             }
 
-            if (t > timeLeftTargetHigh)
+            //enough time to calculate at least 2 moves in next depth (estimation).
+            if (timeLeftTargetHigh < t - timer.MillisecondsElapsedThisTurn * 2)//2 is tweakable parameter
             {
                 if (count < movesLen)
                 {
